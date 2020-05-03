@@ -1,0 +1,549 @@
+---
+title: "SARM is Required for Neuronal Injury and Cytokine Production in Response to Central Nervous System Viral Infection"
+author: "Sandra Bernaus Tomé"
+date: "4/24/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r loading packages, message=FALSE, warningFALSE}
+library(oligo)
+library(Biobase)
+library(arrayQualityMetrics)
+library(ggplot2)
+library(ggrepel)
+library(pvca)
+library(genefilter)
+# BiocManager::install("mouse4302.db")
+library(mouse4302.db)
+library(limma)
+library(gplots)
+library(ReactomePA)
+```
+
+
+## Set work directory and environment 
+```{r}
+getwd()
+setwd(".")
+# dir.create("results") #creamos carpeta results
+```
+
+Lo siguiente que hacemos es guardar los ficheros .cel en la carpeta data, junto al fichero target.csv.
+
+```{r}
+targets <- read.csv2("./data/targets.csv", header = TRUE, sep = ";") 
+# leemos la información de targets.csv
+knitr::kable(
+  targets,
+  booktabs = TRUE,
+  caption = 'Content of the targets file used for the current analysis')
+```
+
+
+## Lectura de ficheros CEL
+
+```{r}
+celFiles<-list.celfiles("./data", full.names=TRUE)
+my.targets<-read.AnnotatedDataFrame(file.path("./data","targets.csv"), header = TRUE, row.names = 1, sep = ";")
+rawData <- read.celfiles(celFiles, phenoData = my.targets)
+#rawData es un ExpressionSet ya que combina la información de diferentes fuentes en una misma estructura
+```
+
+```{r}
+my.targets@data$ShortName->rownames(pData(rawData)) #cambio de nombres de los cel files por los que aparecen en targets
+colnames(rawData)<-rownames(pData(rawData))
+head(rawData)
+```
+## Control de calidad de los datos crudos (raw data)
+Con el paquete *arrayQualityMetrics* podemos observar que datos parecen salirse de la normalidad de la distribución, mediante *boxplots* y *Principal Components Analisis*, entre otros.
+```{r}
+arrayQualityMetrics(rawData, force = TRUE)
+```
+
+Después de haber ejecutado la función *arrayQualityMetrics* se crea un fichero QCDir.Raw en una carpeta de reports.
+
+Ahora pasaremos a analizar mediante una manera más visual el PCA
+```{r}
+
+plotPCA3 <- function (datos, labels, factor, title, scale,colores, size = 1.5, glineas = 0.25) {
+  data <- prcomp(t(datos),scale=scale)
+  # plot adjustments
+  dataDf <- data.frame(data$x)
+  Group <- factor
+  loads <- round(data$sdev^2/sum(data$sdev^2)*100,1)
+ # main plot
+  p1 <- ggplot(dataDf,aes(x=PC1, y=PC2)) +
+    theme_classic() +
+    geom_hline(yintercept = 0, color = "gray70") +
+    geom_vline(xintercept = 0, color = "gray70") +
+    geom_point(aes(color = Group), alpha = 0.55, size = 3) +
+    coord_cartesian(xlim = c(min(data$x[,1])-5,max(data$x[,1])+5)) +
+    scale_fill_discrete(name = "Group")
+   # avoiding labels superposition
+   p1 + geom_text_repel(aes(y = PC2 + 0.25, label = labels),segment.size = 0.25, size = size) + 
+     labs(x = c(paste("PC1",loads[1],"%")),y=c(paste("PC2",loads[2],"%"))) +  
+     ggtitle(paste("Principal Component Analysis for: ",title,sep=" "))+ 
+     theme(plot.title = element_text(hjust = 0.5)) +
+     scale_color_manual(values=colores)
+   }
+```
+
+```{r}
+plotPCA3(exprs(rawData), labels = targets$ShortName, factor = targets$Group, 
+          title="Raw data", scale = FALSE, size = 3, 
+          colores = c("red", "blue", "green", "yellow"))
+```
+
+Para guardar el gráfico en una imagen podemos hacerlo mediante la función png:
+```{r}
+dir.create("figures")
+png("figures/PCA_RawData.png", res = 200, width = 4.5, height = 4, units = 'in')
+plotPCA3(exprs(rawData), labels = targets$ShortName, factor = targets$Group, 
+          title="Raw data", scale = FALSE, size = 3, 
+          colores = c("red", "blue", "green", "yellow"))
+dev.off()
+```
+También podemos visualizar la intensidad de los arrays usando boxplots:
+
+```{r}
+boxplot(rawData, cex.axis=0.5, las=2,  which="all", 
+          col = c(rep("red", 3), rep("blue", 3), rep("green", 3), rep("yellow", 3)),
+          main="Distribution of raw intensity values")
+```
+
+```{r}
+png("figures/boxplot_RawData.png", res = 200, width = 4.5, height = 4, units = 'in')
+boxplot(rawData, cex.axis=0.5, las=2,  which="all", 
+          col = c(rep("red", 3), rep("blue", 3), rep("green", 3),
+                  rep("yellow", 3)),
+          main="Distribution of raw intensity values")
+dev.off()
+```
+
+## Normalización de los datos
+Es necesario hacer que las matrices sean comparables entre ellas e intentar reducir, y si es posible eliminar, toda la variabilidad en las muestras debido a razones biológicas.
+```{r}
+eset_rma <- rma(rawData)
+```
+
+## Control de calidad de los datos normalizados
+
+```{r}
+arrayQualityMetrics(eset_rma, outdir = file.path("./results", "QCDir.Norm"), force=TRUE)
+```
+```{r}
+plotPCA3(exprs(eset_rma), labels = targets$ShortName, factor = targets$Group,
+          title="Normalized data", scale = FALSE, size = 3, 
+          colores = c("red", "blue", "green", "yellow"))
+```
+
+```{r}
+png("figures/PCA_NormData.png", res = 200, width = 4.5, height = 4, units = 'in')
+plotPCA3(exprs(eset_rma), labels = targets$ShortName, factor = targets$Group,
+          title="Normal data", scale = FALSE, size = 3, 
+          colores = c("red", "blue", "green", "yellow"))
+dev.off()
+```
+
+
+```{r}
+boxplot(eset_rma, cex.axis=0.5, las=2,  which="all", 
+          col = c(rep("red", 3), rep("blue", 3), rep("green", 3), rep("yellow", 3)),
+          main="Boxplot for arrays intensity: Normalized Data")
+```
+```{r}
+png("figures/boxplot_NormData.png", res = 200, width = 4.5, height = 4, units = 'in')
+boxplot(eset_rma, cex.axis=0.5, las=2,  which="all", 
+          col = c(rep("red", 3), rep("blue", 3), rep("green", 3), rep("yellow", 3)),
+          main="Boxplot for arrays intensity: Normalized Data")
+dev.off()
+```
+
+## Detección de lotes
+
+*Análisis de componentes de variación principal*, que estima la fuente y la proporción de variación en dos pasos, análisis de componentes principales y análisis de componentes de varianza.
+```{r}
+pData(eset_rma) <- targets
+#select the threshold
+pct_threshold <- 0.6
+#select the factors to analyze
+batch.factors <- c("Genotype", "Infection")
+#run the analysis
+pvcaObj <- pvcaBatchAssess(eset_rma, batch.factors, pct_threshold)
+```
+
+```{r}
+#plot the results
+ bp <- barplot(pvcaObj$dat, xlab = "Effects",
+   ylab = "Weighted average proportion variance",
+   ylim= c(0,1.1),col = c("mediumorchid"), las=2,
+   main="PVCA estimation")
+ axis(1, at = bp, labels = pvcaObj$label, cex.axis = 0.55, las=2)
+ values = pvcaObj$dat
+ new_values = round(values , 3)
+ text(bp,pvcaObj$dat,labels = new_values, pos=3, cex = 0.5)
+```
+En este diagrama de barras observamos la variabilidad atribuida a cada fuente.
+```{r}
+png("figures/PVCA_estimation.png", res = 200, width = 4.5, height = 4, units = 'in')
+ bp <- barplot(pvcaObj$dat, xlab = "Effects",
+   ylab = "Weighted average proportion variance",
+   ylim= c(0,1.1),col = c("mediumorchid"), las=2,
+   main="PVCA estimation")
+ axis(1, at = bp, labels = pvcaObj$label, cex.axis = 0.55, las=2)
+ values = pvcaObj$dat
+ new_values = round(values , 3)
+ text(bp,pvcaObj$dat,labels = new_values, pos=3, cex = 0.5)
+ dev.off()
+```
+
+```{r}
+sds <- apply(exprs(eset_rma), 1, sd)
+sdsO<- sort(sds)
+plot(1:length(sdsO), sdsO, main="Distribution of variability for all genes",
+      sub="Vertical lines represent 90% and 95% percentiles",
+      xlab="Gene index (from least to most variable)", ylab="Standard deviation")
+abline(v=length(sds)*c(0.9,0.95))
+```
+
+Si un gen se expresa de manera diferencial, se espera que haya una cierta diferencia entre los grupos y, por lo tanto, la varianza general del gen será mayor que la de aquellos que no tienen expresión diferencial.
+
+## Filtrando los valores con menos variabilidad
+Eliminamos los genes basados en una variabilidad aleatoria mediante la función `nsFilter` de `genefilter`.
+```{r}
+annotation(eset_rma) <- "mouse4302.db"
+filtered <- nsFilter(eset_rma, 
+                    require.entrez = TRUE, remove.dupEntrez = TRUE,
+                    var.filter=TRUE, var.func=IQR, var.cutoff=0.75, 
+                    filterByQuantile=TRUE, feature.exclude = "^AFFX")
+```
+Devuelve los valores filtrados y un informe de los mismos
+```{r}
+print(filtered$filter.log)
+```
+
+Guardamos los valores eliminados en una variable llamada `eset_filtered`.
+```{r}
+eset_filtered <-filtered$eset
+```
+Quedan 5127 valores en la variable eset_filtered.
+
+## Guardamos los datos filtrados y normalizados
+```{r}
+write.csv(exprs(eset_rma), file="./results/normalized.Data.csv")
+write.csv(exprs(eset_filtered), file="./results/normalized.Filtered.Data.csv")
+save(eset_rma, eset_filtered, file="./results/normalized.Data.Rda")
+```
+
+## Puesta en marxa del experimento: matriz de diseño
+
+Creamos la **matriz de diseño**, ya que es el primer paso para la realización del experimetno. Básicamente es una tabla que describe la asignación de cada muestra a un grupo o condición experimental. Tiene tantas filas como muestras y tantas columnas como grupos (si solo se considera un factor). Cada fila contiene un 1 en la columna del grupo al que pertenece la muestra y un 0 en los demás.
+
+```{r}
+if (!exists("eset_filtered")) load (file="./results/normalized.Data.Rda")
+```
+
+```{r}
+
+designMat<- model.matrix(~0+Group, pData(eset_filtered))
+colnames(designMat) <- c("WT.U", "KO.U", "WT.I", "KO.I")
+print(designMat)
+```
+
+## Comparación entre grupos mediante la matriz de contraste
+Esta matriz de contraste describe las diferencias entre grupos, esta compuesta por tantas columnas como comparaciones y tantas filas como grupos. Esta matriz esta formada por 1 y -1 en los grupos a comparar y 0 en el resto.
+
+Ejemplo:
+```{r}
+cont.matrix <- makeContrasts (KOvsWT.U = KO.U-WT.U,
+                               KOvsWT.I = KO.I-WT.I,
+                               INT = (KO.U-WT.U) - (KO.I-WT.I),
+                               levels=designMat)
+print(cont.matrix)
+```
+
+Esta matriz de contraste se define para realizar tres comparaciones: Efecto de KO en ratones no infectados, Efecto de KO en infectados e interacción entre KO e infección.
+
+## Estimación de modelo y selección de genes
+Una vez tenemos las dos matrizes (diseño y contraste), pasamos a estimar el modelo, el contraste y los test de significancia, para ver si los grupos de contraste pueden ser considerados genes diferencialmente expresados.
+
+El paquete limma utiliza el análisis tradicional de Bayes empírico.
+```{r}
+fit<-lmFit(eset_filtered, designMat)
+fit.main<-contrasts.fit(fit, cont.matrix)
+fit.main<-eBayes(fit.main)
+class(fit.main)
+```
+
+## Lista de los genes diferencialmente expresados
+
+Con la función topTable de limma obtenemos una lista ordenada de menor a mayor p-value (de mayor a menores genes diferencialmente expresados).
+
+* logFC: Mean difference between groups.
+* AveExpr: Average expression of all genes in the comparison.
+* t : Moderated t-statistic (t-test-like statistic for the comparison).
+* P.Value: Test p–value.
+* adj.P.Val: Adjusted p–value following Benjamini and Hochberg (1995)
+* B: B-statistic: Posterior log odds of the gene of being vs non being differential expressed.
+
+Genes que cambian su expresión entre KO y WT cuando no estan infectados:
+```{r}
+topTab_KOvsWT.U <- topTable (fit.main, number=nrow(fit.main), coef="KOvsWT.U", adjust="fdr") 
+head(topTab_KOvsWT.U)
+```
+
+Genes que cambian su expresión entre KO y WT cuando estan infectados:
+```{r}
+topTab_KOvsWT.I <- topTable (fit.main, number=nrow(fit.main), coef="KOvsWT.I", adjust="fdr") 
+head(topTab_KOvsWT.I)
+```
+
+Genes que se comportan de manera diferente entre la comparación 1 y 2:
+```{r}
+topTab_INT  <- topTable (fit.main, number=nrow(fit.main), coef="INT", adjust="fdr") 
+head(topTab_INT)
+```
+
+## Anotación de genes
+Creamos una función para anotar las tablas con los p-valores, mediante un paquete de anotación, donde se encuentra la información relaciónada con cada simbolo de gen.
+```{r}
+annotatedTopTable <- function(topTab, anotPackage)
+ {
+   topTab <- cbind(PROBEID=rownames(topTab), topTab)
+   myProbes <- rownames(topTab)
+   thePackage <- eval(parse(text = anotPackage))
+   geneAnots <- select(thePackage, myProbes, c("SYMBOL", "ENTREZID", "GENENAME"))
+   annotatedTopTab<- merge(x=geneAnots, y=topTab, by.x="PROBEID", by.y="PROBEID")
+ return(annotatedTopTab)
+ }
+```
+
+```{r}
+topAnnotated_KOvsWT.U <- annotatedTopTable(topTab_KOvsWT.U, anotPackage="mouse4302.db")
+topAnnotated_KOvsWT.I <- annotatedTopTable(topTab_KOvsWT.I, anotPackage="mouse4302.db")
+topAnnotated_INT <- annotatedTopTable(topTab_INT,anotPackage="mouse4302.db")
+write.csv(topAnnotated_KOvsWT.U, file="./results/topAnnotated_KOvsWT_U.csv")
+write.csv(topAnnotated_KOvsWT.I, file="./results/topAnnotated_KOvsWT_I.csv")
+write.csv(topAnnotated_INT, file="./results/topAnnotated_INT.csv")
+```
+
+## Visualización de la expresión diferencial
+Mediante volcano plots,que representan en el eje X los cambios de expresión en escala logarítmica ("efecto biológico") y en el eje Y el "logaritmo negativo" del valor p o, alternativamente, el estadístico B ("efecto estadístico")
+
+```{r}
+
+geneSymbols <- select(mouse4302.db, rownames(fit.main), c("SYMBOL"))
+SYMBOLS<- geneSymbols$SYMBOL
+volcanoplot(fit.main, coef=1, highlight=4, names=SYMBOLS, 
+             main=paste("Differentially expressed genes", colnames(cont.matrix)[1], sep="\n"))
+abline(v=c(-1,1))
+```
+
+```{r}
+png("figures/volcanoplot.png", res = 200, width = 4.5, height = 4, units = 'in')
+volcanoplot(fit.main, coef=1, highlight=4, names=SYMBOLS, 
+             main=paste("Differentially expressed genes", colnames(cont.matrix)[1], sep="\n"))
+abline(v=c(-1,1)) 
+dev.off()
+```
+
+## Comparación multiple
+
+```{r}
+res<-decideTests(fit.main, method="separate", adjust.method="fdr", p.value=0.1, lfc=1)
+sum.res.rows<-apply(abs(res),1,sum)
+res.selected<-res[sum.res.rows!=0,] 
+print(summary(res))
+```
+
+```{r}
+vennDiagram (res.selected[,1:3], cex=0.9)
+title("Genes in common between the three comparisons\n Genes selected with FDR < 0.1 and logFC > 1")
+
+```
+```{r}
+png("figures/VennDiagram.png", res = 200, width = 4.5, height = 4, units = 'in')
+vennDiagram (res.selected[,1:3], cex=0.9)
+title("Genes in common between the three comparisons\n Genes selected with FDR < 0.1 and logFC > 1")
+dev.off()
+```
+
+
+## Heatmaps o mapas de calor 
+Para mostrar los genes diferencialmente expresados
+
+```{r}
+probesInHeatmap <- rownames(res.selected)
+HMdata <- exprs(eset_filtered)[rownames(exprs(eset_filtered)) %in% probesInHeatmap,]
+
+geneSymbols <- select(mouse4302.db, rownames(HMdata), c("SYMBOL"))
+SYMBOLS<- geneSymbols$SYMBOL
+rownames(HMdata) <- SYMBOLS
+write.csv(HMdata, file = file.path("./results/data4Heatmap.csv"))
+```
+
+```{r}
+my_palette <- colorRampPalette(c("blue", "red"))(n = 299)
+
+ 
+heatmap.2(HMdata,
+          Rowv = FALSE,
+          Colv = FALSE,
+          main = "Differentially expressed genes \n FDR < 0,1, logFC >=1",
+          scale = "row",
+          col = my_palette,
+          sepcolor = "white",
+          sepwidth = c(0.05,0.05),
+          cexRow = 0.5,
+          cexCol = 0.9,
+          key = TRUE,
+          keysize = 1.5,
+          density.info = "histogram",
+          ColSideColors = c(rep("red",3),rep("blue",3), rep("green",3), rep("yellow",3)),
+          tracecol = NULL,
+          dendrogram = "none",
+          srtCol = 30)
+```
+
+```{r}
+png("figures/VennDiagram.png", res = 200, width = 4.5, height = 4, units = 'in')
+heatmap.2(HMdata,
+          Rowv = FALSE,
+          Colv = FALSE,
+          main = "Differentially expressed genes \n FDR < 0,1, logFC >=1",
+          scale = "row",
+          col = my_palette,
+          sepcolor = "white",
+          sepwidth = c(0.05,0.05),
+          cexRow = 0.5,
+          cexCol = 0.9,
+          key = TRUE,
+          keysize = 1.5,
+          density.info = "histogram",
+          ColSideColors = c(rep("red",3),rep("blue",3), rep("green",3), rep("yellow",3)),
+          tracecol = NULL,
+          dendrogram = "none",
+          srtCol = 30)
+dev.off()
+```
+
+```{r}
+heatmap.2(HMdata,
+           Rowv = TRUE,
+           Colv = TRUE,
+           dendrogram = "both",
+           main = "Differentially expressed genes \n FDR < 0,1, logFC >=1",
+           scale = "row",
+           col = my_palette,
+           sepcolor = "white",
+           sepwidth = c(0.05,0.05),
+           cexRow = 0.5,
+           cexCol = 0.9,
+           key = TRUE,
+           keysize = 1.5,
+           density.info = "histogram",
+           ColSideColors = c(rep("red",3),rep("blue",3), rep("green",3), rep("yellow",3)),
+           tracecol = NULL,
+           srtCol = 30)
+```
+
+
+```{r}
+png("figures/VennDiagram.png", res = 200, width = 4.5, height = 4, units = 'in')
+heatmap.2(HMdata,
+           Rowv = TRUE,
+           Colv = TRUE,
+           dendrogram = "both",
+           main = "Differentially expressed genes \n FDR < 0,1, logFC >=1",
+           scale = "row",
+           col = my_palette,
+           sepcolor = "white",
+           sepwidth = c(0.05,0.05),
+           cexRow = 0.5,
+           cexCol = 0.9,
+           key = TRUE,
+           keysize = 1.5,
+           density.info = "histogram",
+           ColSideColors = c(rep("red",3),rep("blue",3), rep("green",3), rep("yellow",3)),
+           tracecol = NULL,
+           srtCol = 30)
+dev.off()
+```
+
+
+## Significado Biológico de los resultados
+Una vez que se obtiene una lista de genes que caracteriza la diferencia entre dos condiciones, debe interpretarse. Aunque esto requiere, por supuesto, una buena comprensión del problema biológico subyacente, un enfoque estadístico conocido como "Análisis de conjunto de genes" puede ser útil para sugerir ideas para la interpretación.
+
+Usaremos el análisis de enriquecimiento básico como se describe en implementado en el paquete ReactomePA.
+
+Incluimos todos los genes con un límite FDR no estricto FDR < 0.15 sin mínimo fold-change.
+
+Lista de genes que va a ser analizada:
+```{r}
+listOfTables <- list(KOvsWT.U = topTab_KOvsWT.U, 
+                      KOvsWT.I  = topTab_KOvsWT.I, 
+                      INT = topTab_INT)
+listOfSelected <- list()
+for (i in 1:length(listOfTables)){
+   # select the toptable
+   topTab <- listOfTables[[i]]
+   # select the genes to be included in the analysis
+   whichGenes<-topTab["adj.P.Val"]<0.15
+   selectedIDs <- rownames(topTab)[whichGenes]
+   # convert the ID to Entrez
+   EntrezIDs<- select(mouse4302.db, selectedIDs, c("ENTREZID"))
+   EntrezIDs <- EntrezIDs$ENTREZID
+   listOfSelected[[i]] <- EntrezIDs
+   names(listOfSelected)[i] <- names(listOfTables)[i]
+ }
+sapply(listOfSelected, length)
+```
+Utilizamos todos los genes que tienen anotaciones de Gene Ontology.
+```{r}
+mapped_genes2GO <- mappedkeys(org.Mm.egGO)
+mapped_genes2KEGG <- mappedkeys(org.Mm.egPATH)
+mapped_genes <- union(mapped_genes2GO , mapped_genes2KEGG)
+```
+
+
+```{r}
+ 
+listOfData <- listOfSelected[1:2]
+comparisonsNames <- names(listOfData)
+universe <- mapped_genes
+ 
+ for (i in 1:length(listOfData)){
+   genesIn <- listOfData[[i]]
+   comparison <- comparisonsNames[i]
+   enrich.result <- enrichPathway(gene = genesIn,
+                                  pvalueCutoff = 0.05,
+                                  readable = T,
+                                  pAdjustMethod = "BH",
+                                  organism = "mouse",
+                                  universe = universe)
+   
+   cat("##################################")
+   cat("\nComparison: ", comparison,"\n")
+   print(head(enrich.result))
+ 
+   if (length(rownames(enrich.result@result)) != 0) {
+   write.csv(as.data.frame(enrich.result), 
+              file =paste0("./results/","ReactomePA.Results.",comparison,".csv"), 
+              row.names = FALSE)
+   
+   pdf(file=paste0("./results/","ReactomePABarplot.",comparison,".pdf"))
+     print(barplot(enrich.result, showCategory = 15, font.size = 4, 
+             title = paste0("Reactome Pathway Analysis for ", comparison,". Barplot")))
+   dev.off()
+   
+   pdf(file = paste0("./results/","ReactomePAcnetplot.",comparison,".pdf"))
+     print(cnetplot(enrich.result, categorySize = "geneNum", schowCategory = 15, 
+          vertex.label.cex = 0.75))
+   dev.off()
+   }
+ }
+```

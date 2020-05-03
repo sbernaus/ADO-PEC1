@@ -1,0 +1,6 @@
+"ID","Description","GeneRatio","BgRatio","pvalue","p.adjust","qvalue","geneID","Count"
+"R-MMU-1169410","Antiviral mechanism by IFN-stimulated genes","8/336","32/8772",2.00253128325961e-05,0.00896650082681148,0.00871023506836911,"Usp18/Eif2ak2/Eif4g1/Trim25/Uba7/Irf3/Oasl1/Ddx58",8
+"R-MMU-913531","Interferon Signaling","11/336","64/8772",2.66068273792625e-05,0.00896650082681148,0.00871023506836911,"Usp18/Irf9/Eif2ak2/Eif4g1/Trim25/Uba7/Irf3/Oasl1/Socs3/Ptpn6/Ddx58",11
+"R-MMU-1236975","Antigen processing-Cross presentation","13/336","93/8772",4.92545377823288e-05,0.0110658528217632,0.0107495868423188,"H2-K1/B2m/Psmb8/Psmb9/Cybb/Fcgr1/H2-M3/Ncf1/Cyba/Tapbp/Tap2/Psme4/H2-T24",13
+"R-MMU-1169408","ISG15 antiviral mechanism","7/336","28/8772",6.70851080018854e-05,0.0113038406983177,0.0109807729413612,"Usp18/Eif2ak2/Eif4g1/Trim25/Uba7/Irf3/Ddx58",7
+"R-MMU-983169","Class I MHC mediated antigen processing & presentation","28/336","342/8772",0.000115583729756975,0.0155806867712402,0.0151353852439659,"H2-K1/B2m/Psmb8/Psmb9/Cybb/Herc6/Fcgr1/Dtx3l/H2-M3/Ncf1/Hecw2/Erap1/Uba7/Ank2/Cyba/Tapbp/Tap2/Herc1/Cbll1/Socs3/Psme4/Cblb/Fbxw11/Ankrd12/H2-T24/Fbxo21/Ltn1/Keap1",28
